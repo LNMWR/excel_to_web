@@ -67,23 +67,21 @@
     const fileTypeDisplay = document.getElementById('fileTypeDisplay');
     const clearDataBtn = document.getElementById('clearDataBtn');
 
-    let originalData = [];
+    let headers = [];
+    let dataRows = [];
     let fileType = '';
 
     // 检查localStorage中是否有保存的数据
     window.addEventListener('load', () => {
         const savedFileType = localStorage.getItem('fileType');
-        const savedData = localStorage.getItem('tableData');
-        if (savedFileType && savedData) {
+        const savedHeaders = localStorage.getItem('tableHeaders');
+        const savedDataRows = localStorage.getItem('tableDataRows');
+        if (savedFileType && savedHeaders && savedDataRows) {
             fileType = savedFileType;
+            headers = JSON.parse(savedHeaders);
+            dataRows = JSON.parse(savedDataRows);
             fileTypeDisplay.textContent = `当前文件类型：.${fileType}`;
-            if (fileType === 'csv') {
-                originalData = JSON.parse(savedData);
-                displayTable(originalData, true);
-            } else if (fileType === 'xlsx') {
-                originalData = JSON.parse(savedData);
-                displayTable(originalData, false);
-            }
+            displayTable(headers, dataRows);
             downloadBtn.disabled = false;
             clearDataBtn.disabled = false;
         }
@@ -107,8 +105,9 @@
                     header: true,
                     skipEmptyLines: true,
                     complete: function(results) {
-                        originalData = results.data;
-                        displayTable(originalData, true);
+                        headers = results.meta.fields;
+                        dataRows = results.data;
+                        displayTable(headers, dataRows);
                         saveData();
                     }
                 });
@@ -116,8 +115,13 @@
                 const workbook = XLSX.read(data, {type: 'binary'});
                 const firstSheet = workbook.SheetNames[0];
                 const sheetData = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet], {header:1});
-                originalData = sheetData;
-                displayTable(originalData, false);
+                if (sheetData.length === 0) {
+                    alert('XLSX文件为空！');
+                    return;
+                }
+                headers = sheetData[0];
+                dataRows = sheetData.slice(1);
+                displayTable(headers, dataRows);
                 saveData();
             } else {
                 alert('仅支持CSV和XLSX文件');
@@ -132,143 +136,110 @@
     });
 
     // 显示表格
-    function displayTable(data, isCSV) {
+    function displayTable(headers, dataRows) {
         tableContainer.innerHTML = ''; // 清空之前的表格
         const table = document.createElement('table');
         table.id = 'dataTable'; // 添加唯一ID以便插件识别
         const thead = document.createElement('thead');
         const tbody = document.createElement('tbody');
 
-        if (isCSV) {
-            const headers = Object.keys(data[0]);
-            const headerRow = document.createElement('tr');
-            headers.forEach(header => {
-                const th = document.createElement('th');
-                th.textContent = header;
-                headerRow.appendChild(th);
-            });
-            thead.appendChild(headerRow);
-            table.appendChild(thead);
+        // 创建表头
+        const headerRow = document.createElement('tr');
+        headers.forEach(header => {
+            const th = document.createElement('th');
+            th.textContent = header;
+            headerRow.appendChild(th);
+        });
+        thead.appendChild(headerRow);
+        table.appendChild(thead);
 
-            data.forEach((row, rowIndex) => {
-                const tr = document.createElement('tr');
-                tr.dataset.row = rowIndex; // 添加行数据属性
-                headers.forEach((header, cellIndex) => {
-                    const td = document.createElement('td');
-                    td.contentEditable = "true";
-                    td.textContent = row[header];
-                    td.dataset.column = header; // 添加列数据属性
-                    // 添加事件监听器以更新 originalData
-                    td.addEventListener('input', () => {
-                        originalData[rowIndex][header] = td.textContent;
-                        saveData();
-                    });
-                    tr.appendChild(td);
+        // 创建数据行
+        dataRows.forEach((row, rowIndex) => {
+            const tr = document.createElement('tr');
+            tr.dataset.row = rowIndex; // 添加行数据属性
+            headers.forEach((header, cellIndex) => {
+                const td = document.createElement('td');
+                td.contentEditable = "true";
+                td.textContent = row[cellIndex] !== undefined ? row[cellIndex] : '';
+                td.dataset.column = cellIndex; // 使用列索引作为列数据属性
+                // 添加事件监听器以更新 dataRows
+                td.addEventListener('input', () => {
+                    dataRows[rowIndex][cellIndex] = td.textContent;
+                    saveData();
                 });
-                tbody.appendChild(tr);
+                tr.appendChild(td);
             });
-        } else { // XLSX
-            // Assuming the first row is the header
-            const headers = data[0];
-            const headerRow = document.createElement('tr');
-            headers.forEach((header, index) => {
-                const th = document.createElement('th');
-                th.textContent = header;
-                headerRow.appendChild(th);
-            });
-            thead.appendChild(headerRow);
-            table.appendChild(thead);
-
-            for (let rowIndex = 1; rowIndex < data.length; rowIndex++) {
-                const row = data[rowIndex];
-                const tr = document.createElement('tr');
-                tr.dataset.row = rowIndex - 1; // 行索引从0开始
-                row.forEach((cell, cellIndex) => {
-                    const th = headers[cellIndex] || `Column ${cellIndex + 1}`;
-                    const td = document.createElement('td');
-                    td.contentEditable = "true";
-                    td.textContent = cell;
-                    td.dataset.column = th; // 使用表头作为列数据属性
-                    // 添加事件监听器以更新 originalData
-                    td.addEventListener('input', () => {
-                        originalData[rowIndex - 1][cellIndex] = td.textContent;
-                        saveData();
-                    });
-                    tr.appendChild(td);
-                });
-                tbody.appendChild(tr);
-            }
-        }
+            tbody.appendChild(tr);
+        });
 
         table.appendChild(tbody);
         tableContainer.appendChild(table);
         downloadBtn.disabled = false;
+
+        // 更新 localStorage 的按钮状态
+        clearDataBtn.disabled = false;
     }
 
     // 保存数据到localStorage
     function saveData() {
         localStorage.setItem('fileType', fileType);
-        localStorage.setItem('tableData', JSON.stringify(originalData));
+        localStorage.setItem('tableHeaders', JSON.stringify(headers));
+        localStorage.setItem('tableDataRows', JSON.stringify(dataRows));
     }
 
     // 下载按钮点击事件
     downloadBtn.addEventListener('click', () => {
-        const table = document.getElementById('dataTable');
-        if (!table) {
+        if (fileType === 'csv') {
+            downloadCSV();
+        } else if (fileType === 'xlsx') {
+            downloadXLSX();
+        }
+    });
+
+    // 下载CSV文件
+    function downloadCSV() {
+        if (headers.length === 0) {
             alert('没有可下载的数据');
             return;
         }
+        const csv = Papa.unparse({
+            fields: headers,
+            data: dataRows
+        });
+        downloadFile(csv, 'modified.csv', 'text/csv');
+    }
 
-        let translatedData = [];
-        if (fileType === 'csv') {
-            const headers = Array.from(table.querySelectorAll('thead th')).map(th => th.textContent);
-            const rows = Array.from(table.querySelectorAll('tbody tr')).map(tr => {
-                const cells = Array.from(tr.querySelectorAll('td')).map(td => td.textContent);
-                let row = {};
-                headers.forEach((header, index) => {
-                    row[header] = cells[index];
-                });
-                return row;
-            });
-            translatedData = rows;
-            const csv = Papa.unparse(translatedData);
-            downloadFile(csv, 'modified.csv', 'text/csv');
-        } else if (fileType === 'xlsx') {
-            const headers = Array.from(table.querySelectorAll('thead th')).map(th => th.textContent);
-            translatedData.push(headers);
-            const rows = Array.from(table.querySelectorAll('tbody tr')).map(tr => {
-                return Array.from(tr.querySelectorAll('td')).map(td => td.textContent);
-            });
-            translatedData = translatedData.concat(rows);
-            const worksheet = XLSX.utils.aoa_to_sheet(translatedData);
-            const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, 'Modified');
-            const wbout = XLSX.write(workbook, {bookType: 'xlsx', type: 'binary'});
-
-            function s2ab(s) {
-                const buf = new ArrayBuffer(s.length);
-                const view = new Uint8Array(buf);
-                for (let i = 0; i < s.length; i++) view[i] = s.charCodeAt(i) & 0xFF;
-                return buf;
-            }
-
-            downloadFile(new Blob([s2ab(wbout)], {type: 'application/octet-stream'}), 'modified.xlsx', 'application/octet-stream');
+    // 下载XLSX文件
+    function downloadXLSX() {
+        if (headers.length === 0) {
+            alert('没有可下载的数据');
+            return;
         }
-    });
+        const worksheetData = [headers, ...dataRows];
+        const worksheet = XLSX.utils.aoa_to_sheet(worksheetData);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Modified');
+        const wbout = XLSX.write(workbook, {bookType: 'xlsx', type: 'binary'});
+
+        function s2ab(s) {
+            const buf = new ArrayBuffer(s.length);
+            const view = new Uint8Array(buf);
+            for (let i = 0; i < s.length; i++) view[i] = s.charCodeAt(i) & 0xFF;
+            return buf;
+        }
+
+        downloadFile(new Blob([s2ab(wbout)], {type: 'application/octet-stream'}), 'modified.xlsx', 'application/octet-stream');
+    }
 
     // 下载文件辅助函数
     function downloadFile(content, filename, mimeType) {
         const a = document.createElement('a');
-        let blob;
-        if (mimeType === 'application/octet-stream') {
-            blob = content;
-        } else {
-            blob = new Blob([content], {type: mimeType});
-        }
-        const url = URL.createObjectURL(blob);
+        const url = URL.createObjectURL(content instanceof Blob ? content : new Blob([content], {type: mimeType}));
         a.href = url;
         a.download = filename;
+        document.body.appendChild(a);
         a.click();
+        document.body.removeChild(a);
         URL.revokeObjectURL(url);
     }
 
@@ -276,11 +247,14 @@
     clearDataBtn.addEventListener('click', () => {
         if (confirm('确定要清空所有数据吗？')) {
             localStorage.removeItem('fileType');
-            localStorage.removeItem('tableData');
+            localStorage.removeItem('tableHeaders');
+            localStorage.removeItem('tableDataRows');
             tableContainer.innerHTML = '';
             fileTypeDisplay.textContent = '';
             downloadBtn.disabled = true;
             clearDataBtn.disabled = true;
+            headers = [];
+            dataRows = [];
             alert('数据已清空');
         }
     });
