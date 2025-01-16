@@ -39,38 +39,42 @@
             background-color: #45a049;
         }
 
-        .data-pair {
-            display: flex;
-            flex-wrap: wrap;
-            margin: 10px 0;
-            padding: 10px;
-            background-color: #f8f9fa;
-            border-radius: 4px;
-        }
-
-        .key {
-            font-weight: bold;
-            margin-right: 10px;
-            min-width: 150px;
-        }
-
-        .value {
-            flex-grow: 1;
-            word-break: break-all;
-        }
-
         #fileInput {
             display: none;
         }
 
         #preview {
             margin-top: 20px;
+            overflow-x: auto;
         }
 
-        .record {
-            margin-bottom: 20px;
+        .header, .row {
+            display: flex;
+            flex-wrap: nowrap;
+            padding: 10px 0;
             border-bottom: 1px solid #ddd;
-            padding-bottom: 10px;
+        }
+
+        .header {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+
+        .cell {
+            flex: 1;
+            padding: 0 10px;
+            min-width: 100px;
+            word-break: break-word;
+        }
+
+        .row:nth-child(even) {
+            background-color: #fafafa;
+        }
+
+        @media (max-width: 600px) {
+            .cell {
+                min-width: 80px;
+            }
         }
     </style>
     <!-- Include SheetJS library -->
@@ -91,6 +95,8 @@
     </div>
 
     <script>
+        let globalJsonData = []; // 用于存储导入的数据
+
         document.getElementById('fileInput').addEventListener('change', function(e) {
             const file = e.target.files[0];
             if (!file) return;
@@ -111,7 +117,7 @@
                     return;
                 }
 
-                // 假设处理第一个工作表
+                // 处理第一个工作表
                 const firstSheetName = workbook.SheetNames[0];
                 const worksheet = workbook.Sheets[firstSheetName];
                 let jsonData = XLSX.utils.sheet_to_json(worksheet, {defval: ""});
@@ -119,6 +125,7 @@
                 // 去掉空行
                 jsonData = jsonData.filter(row => Object.values(row).some(cell => cell !== ""));
 
+                globalJsonData = jsonData; // 存储数据以便下载时使用
                 displayData(jsonData);
             };
 
@@ -142,78 +149,56 @@
             const preview = document.getElementById('preview');
             preview.innerHTML = '';
 
-            data.forEach((row, rowIndex) => {
-                const recordDiv = document.createElement('div');
-                recordDiv.className = 'record';
+            // 创建头部
+            const headerDiv = document.createElement('div');
+            headerDiv.className = 'header';
 
-                const dataPairDiv = document.createElement('div');
-                dataPairDiv.className = 'data-pair';
+            const headers = Object.keys(data[0]);
+            headers.forEach(header => {
+                const cell = document.createElement('div');
+                cell.className = 'cell';
+                cell.textContent = header;
+                headerDiv.appendChild(cell);
+            });
 
-                Object.entries(row).forEach(([key, value]) => {
-                    const keySpan = document.createElement('span');
-                    keySpan.className = 'key';
-                    keySpan.textContent = `${key}:`;
+            preview.appendChild(headerDiv);
 
-                    const valueSpan = document.createElement('span');
-                    valueSpan.className = 'value';
-                    valueSpan.textContent = value;
+            // 创建数据行
+            data.forEach(row => {
+                const rowDiv = document.createElement('div');
+                rowDiv.className = 'row';
 
-                    dataPairDiv.appendChild(keySpan);
-                    dataPairDiv.appendChild(valueSpan);
+                headers.forEach(header => {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.textContent = row[header];
+                    rowDiv.appendChild(cell);
                 });
 
-                recordDiv.appendChild(dataPairDiv);
-                preview.appendChild(recordDiv);
+                preview.appendChild(rowDiv);
             });
         }
 
         function downloadAsExcel() {
-            const preview = document.getElementById('preview');
-            const records = preview.getElementsByClassName('record');
-
-            if (records.length === 0) {
+            if (globalJsonData.length === 0) {
                 alert('Please import an Excel or CSV file first!');
                 return;
             }
 
-            const jsonData = Array.from(records).map(record => {
-                const dataPairs = record.getElementsByClassName('data-pair')[0].children;
-                const row = {};
-                for (let i = 0; i < dataPairs.length; i += 2) {
-                    const key = dataPairs[i].textContent.slice(0, -1); // Remove the colon
-                    const value = dataPairs[i + 1].textContent;
-                    row[key] = value;
-                }
-                return row;
-            });
-
             const wb = XLSX.utils.book_new();
-            const ws = XLSX.utils.json_to_sheet(jsonData);
+            const ws = XLSX.utils.json_to_sheet(globalJsonData);
             XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
             XLSX.writeFile(wb, 'exported.xlsx');
         }
 
         function downloadAsCSV() {
-            const preview = document.getElementById('preview');
-            const records = preview.getElementsByClassName('record');
-
-            if (records.length === 0) {
+            if (globalJsonData.length === 0) {
                 alert('Please import an Excel or CSV file first!');
                 return;
             }
 
-            const jsonData = Array.from(records).map(record => {
-                const dataPairs = record.getElementsByClassName('data-pair')[0].children;
-                const row = {};
-                for (let i = 0; i < dataPairs.length; i += 2) {
-                    const key = dataPairs[i].textContent.slice(0, -1); // Remove the colon
-                    const value = dataPairs[i + 1].textContent;
-                    row[key] = value;
-                }
-                return row;
-            });
-
-            const csv = XLSX.utils.sheet_to_csv(XLSX.utils.json_to_sheet(jsonData));
+            const ws = XLSX.utils.json_to_sheet(globalJsonData);
+            const csv = XLSX.utils.sheet_to_csv(ws);
 
             const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
             const url = URL.createObjectURL(blob);
