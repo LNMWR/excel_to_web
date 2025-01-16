@@ -32,6 +32,10 @@
         }
         td {
             min-width: 100px;
+            overflow: hidden;
+        }
+        td[contenteditable="true"] {
+            background-color: #f9f9f9;
         }
         button {
             padding: 10px 20px;
@@ -149,49 +153,37 @@
         }
     });
 
-    // 显示表格
+    // 显示表格（使用 innerHTML 拼接）
     function displayTable(headers, dataRows) {
-        tableContainer.innerHTML = ''; // 清空之前的表格
-        const table = document.createElement('table');
-        table.id = 'dataTable'; // 添加唯一ID以便插件识别
-        const thead = document.createElement('thead');
-        const tbody = document.createElement('tbody');
-
-        // 创建表头
-        const headerRow = document.createElement('tr');
+        let tableHTML = '<table id="dataTable"><thead><tr>';
         headers.forEach(header => {
-            const th = document.createElement('th');
-            th.textContent = header;
-            headerRow.appendChild(th);
+            tableHTML += `<th>${escapeHTML(header)}</th>`;
         });
-        thead.appendChild(headerRow);
-        table.appendChild(thead);
+        tableHTML += '</tr></thead><tbody>';
 
-        // 创建数据行
         dataRows.forEach((row, rowIndex) => {
-            const tr = document.createElement('tr');
-            tr.dataset.row = rowIndex; // 添加行数据属性
+            tableHTML += `<tr data-row="${rowIndex}">`;
             headers.forEach((header, cellIndex) => {
-                const td = document.createElement('td');
-                td.contentEditable = "true";
-                td.textContent = row[cellIndex] !== undefined ? row[cellIndex] : '';
-                td.dataset.column = cellIndex; // 使用列索引作为列数据属性
-                // 添加事件监听器以更新 dataRows
-                td.addEventListener('input', () => {
-                    dataRows[rowIndex][cellIndex] = td.textContent;
-                    saveData();
-                });
-                tr.appendChild(td);
+                const cellData = row[cellIndex] !== undefined ? escapeHTML(row[cellIndex]) : '';
+                tableHTML += `<td contenteditable="true" data-row="${rowIndex}" data-col="${cellIndex}">${cellData}</td>`;
             });
-            tbody.appendChild(tr);
+            tableHTML += '</tr>';
         });
 
-        table.appendChild(tbody);
-        tableContainer.appendChild(table);
+        tableHTML += '</tbody></table>';
+        tableContainer.innerHTML = tableHTML;
         downloadBtn.disabled = false;
-
-        // 更新 localStorage 的按钮状态
         clearDataBtn.disabled = false;
+    }
+
+    // 转义HTML字符以防止XSS攻击
+    function escapeHTML(str) {
+        if (typeof str !== 'string') return str;
+        return str.replace(/&/g, "&amp;")
+                  .replace(/</g, "&lt;")
+                  .replace(/>/g, "&gt;")
+                  .replace(/"/g, "&quot;")
+                  .replace(/'/g, "&#039;");
     }
 
     // 保存数据到localStorage
@@ -201,6 +193,16 @@
         localStorage.setItem('tableDataRows', JSON.stringify(dataRows));
         console.log("Data saved to localStorage.");
     }
+
+    // 事件委托监听单元格编辑
+    tableContainer.addEventListener('input', (e) => {
+        if (e.target && e.target.nodeName === 'TD' && e.target.isContentEditable) {
+            const rowIndex = parseInt(e.target.getAttribute('data-row'), 10);
+            const colIndex = parseInt(e.target.getAttribute('data-col'), 10);
+            dataRows[rowIndex][colIndex] = e.target.textContent;
+            saveData();
+        }
+    });
 
     // 下载按钮点击事件
     downloadBtn.addEventListener('click', () => {
