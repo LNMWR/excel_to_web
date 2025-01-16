@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>文件上传与下载工具</title>
+    <!-- 引入SheetJS和PapaParse库 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 40px;
+        }
+        .container {
+            max-width: 1000px;
+            margin: auto;
+        }
+        input[type="file"] {
+            margin-bottom: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        table, th, td {
+            border: 1px solid #ccc;
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+        }
+        td {
+            min-width: 100px;
+        }
+        button {
+            padding: 10px 20px;
+            margin-right: 10px;
+        }
+        #fileTypeDisplay {
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>文件上传与下载工具</h1>
+    <input type="file" id="fileInput" accept=".xlsx,.csv">
+    <div id="fileTypeDisplay"></div>
+    <div id="tableContainer"></div>
+    <button id="downloadBtn" disabled>下载修改后的文件</button>
+</div>
+
+<script>
+    const fileInput = document.getElementById('fileInput');
+    const tableContainer = document.getElementById('tableContainer');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const fileTypeDisplay = document.getElementById('fileTypeDisplay');
+
+    let originalData = [];
+    let fileType = '';
+
+    // 读取文件
+    fileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        const ext = file.name.split('.').pop().toLowerCase();
+        fileType = ext;
+        fileTypeDisplay.textContent = `当前文件类型：.${ext}`;
+
+        reader.onload = (evt) => {
+            const data = evt.target.result;
+            if (ext === 'csv') {
+                Papa.parse(data, {
+                    header: true,
+                    skipEmptyLines: true,
+                    complete: function(results) {
+                        originalData = results.data;
+                        displayTable(originalData, true);
+                    }
+                });
+            } else if (ext === 'xlsx') {
+                const workbook = XLSX.read(data, {type: 'binary'});
+                const firstSheet = workbook.SheetNames[0];
+                const sheetData = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet], {header:1});
+                originalData = sheetData;
+                displayTable(originalData, false);
+            } else {
+                alert('仅支持CSV和XLSX文件');
+            }
+        };
+
+        if (ext === 'csv') {
+            reader.readAsText(file);
+        } else if (ext === 'xlsx') {
+            reader.readAsBinaryString(file);
+        }
+    });
+
+    // 显示表格
+    function displayTable(data, isCSV) {
+        tableContainer.innerHTML = ''; // 清空之前的表格
+        const table = document.createElement('table');
+        const tbody = document.createElement('tbody');
+
+        if (isCSV) {
+            const headers = Object.keys(data[0]);
+            const thead = document.createElement('thead');
+            const headerRow = document.createElement('tr');
+            headers.forEach(header => {
+                const th = document.createElement('th');
+                th.textContent = header;
+                headerRow.appendChild(th);
+            });
+            thead.appendChild(headerRow);
+            table.appendChild(thead);
+
+            data.forEach(row => {
+                const tr = document.createElement('tr');
+                headers.forEach(header => {
+                    const td = document.createElement('td');
+                    td.contentEditable = "true";
+                    td.textContent = row[header];
+                    tr.appendChild(td);
+                });
+                tbody.appendChild(tr);
+            });
+        } else { // XLSX
+            data.forEach((row, rowIndex) => {
+                const tr = document.createElement('tr');
+                row.forEach((cell, cellIndex) => {
+                    const td = document.createElement('td');
+                    td.contentEditable = "true";
+                    td.textContent = cell;
+                    tr.appendChild(td);
+                });
+                tbody.appendChild(tr);
+            });
+        }
+
+        table.appendChild(tbody);
+        tableContainer.appendChild(table);
+        downloadBtn.disabled = false;
+    }
+
+    // 下载按钮点击事件
+    downloadBtn.addEventListener('click', () => {
+        const table = tableContainer.querySelector('table');
+        if (!table) {
+            alert('没有可下载的数据');
+            return;
+        }
+
+        let translatedData = [];
+        if (fileType === 'csv') {
+            const headers = Array.from(table.querySelectorAll('thead th')).map(th => th.textContent);
+            const rows = Array.from(table.querySelectorAll('tbody tr')).map(tr => {
+                const cells = Array.from(tr.querySelectorAll('td')).map(td => td.textContent);
+                let row = {};
+                headers.forEach((header, index) => {
+                    row[header] = cells[index];
+                });
+                return row;
+            });
+            translatedData = rows;
+            const csv = Papa.unparse(translatedData);
+            downloadFile(csv, 'modified.csv', 'text/csv');
+        } else if (fileType === 'xlsx') {
+            const rows = Array.from(table.querySelectorAll('tr')).map(tr => {
+                return Array.from(tr.querySelectorAll('td')).map(td => td.textContent);
+            });
+            translatedData = rows;
+            const worksheet = XLSX.utils.aoa_to_sheet(translatedData);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, 'Modified');
+            const wbout = XLSX.write(workbook, {bookType: 'xlsx', type: 'binary'});
+
+            function s2ab(s) {
+                const buf = new ArrayBuffer(s.length);
+                const view = new Uint8Array(buf);
+                for (let i = 0; i < s.length; i++) view[i] = s.charCodeAt(i) & 0xFF;
+                return buf;
+            }
+
+            downloadFile(new Blob([s2ab(wbout)], {type: 'application/octet-stream'}), 'modified.xlsx', 'application/octet-stream');
+        }
+    });
+
+    // 下载文件辅助函数
+    function downloadFile(content, filename, mimeType) {
+        const a = document.createElement('a');
+        const blob = new Blob([content], {type: mimeType});
+        const url = URL.createObjectURL(blob);
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+</script>
+</body>
+</html>
