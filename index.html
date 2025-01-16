@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html>
 <head>
     <meta charset="UTF-8">
     <title>表格文件（.xlsx, .csv）上传与下载工具</title>
@@ -104,6 +104,7 @@
     function displayTable(data, isCSV) {
         tableContainer.innerHTML = ''; // 清空之前的表格
         const table = document.createElement('table');
+        table.id = 'dataTable'; // 添加唯一ID以便插件识别
         const tbody = document.createElement('tbody');
 
         if (isCSV) {
@@ -118,12 +119,14 @@
             thead.appendChild(headerRow);
             table.appendChild(thead);
 
-            data.forEach(row => {
+            data.forEach((row, rowIndex) => {
                 const tr = document.createElement('tr');
-                headers.forEach(header => {
+                tr.dataset.row = rowIndex; // 添加行数据属性
+                headers.forEach((header, cellIndex) => {
                     const td = document.createElement('td');
                     td.contentEditable = "true";
                     td.textContent = row[header];
+                    td.dataset.column = header; // 添加列数据属性
                     tr.appendChild(td);
                 });
                 tbody.appendChild(tr);
@@ -131,10 +134,12 @@
         } else { // XLSX
             data.forEach((row, rowIndex) => {
                 const tr = document.createElement('tr');
+                tr.dataset.row = rowIndex; // 添加行数据属性
                 row.forEach((cell, cellIndex) => {
                     const td = document.createElement('td');
                     td.contentEditable = "true";
                     td.textContent = cell;
+                    td.dataset.column = cellIndex; // 添加列数据属性
                     tr.appendChild(td);
                 });
                 tbody.appendChild(tr);
@@ -148,7 +153,7 @@
 
     // 下载按钮点击事件
     downloadBtn.addEventListener('click', () => {
-        const table = tableContainer.querySelector('table');
+        const table = document.getElementById('dataTable');
         if (!table) {
             alert('没有可下载的数据');
             return;
@@ -192,7 +197,12 @@
     // 下载文件辅助函数
     function downloadFile(content, filename, mimeType) {
         const a = document.createElement('a');
-        const blob = new Blob([content], {type: mimeType});
+        let blob;
+        if (mimeType === 'application/octet-stream') {
+            blob = content;
+        } else {
+            blob = new Blob([content], {type: mimeType});
+        }
         const url = URL.createObjectURL(blob);
         a.href = url;
         a.download = filename;
