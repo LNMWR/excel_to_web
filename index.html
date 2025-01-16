@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>表格文件上传与下载工具</title>
+    <title>表格文件（.xlsx, .csv）上传与下载工具</title>
     <!-- 引入SheetJS和PapaParse库 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
@@ -49,7 +49,7 @@
 </head>
 <body>
 <div class="container">
-    <h1>表格网页化工具（.xlsx, .csv）</h1>
+    <h1>文件上传与下载工具</h1>
     <div class="button-group">
         <input type="file" id="fileInput" accept=".xlsx,.csv" style="display: none;">
         <button onclick="document.getElementById('fileInput').click()">上传表格文件</button>
@@ -136,11 +136,11 @@
         tableContainer.innerHTML = ''; // 清空之前的表格
         const table = document.createElement('table');
         table.id = 'dataTable'; // 添加唯一ID以便插件识别
+        const thead = document.createElement('thead');
         const tbody = document.createElement('tbody');
 
         if (isCSV) {
             const headers = Object.keys(data[0]);
-            const thead = document.createElement('thead');
             const headerRow = document.createElement('tr');
             headers.forEach(header => {
                 const th = document.createElement('th');
@@ -158,31 +158,51 @@
                     td.contentEditable = "true";
                     td.textContent = row[header];
                     td.dataset.column = header; // 添加列数据属性
+                    // 添加事件监听器以更新 originalData
+                    td.addEventListener('input', () => {
+                        originalData[rowIndex][header] = td.textContent;
+                        saveData();
+                    });
                     tr.appendChild(td);
                 });
                 tbody.appendChild(tr);
             });
         } else { // XLSX
-            data.forEach((row, rowIndex) => {
+            // Assuming the first row is the header
+            const headers = data[0];
+            const headerRow = document.createElement('tr');
+            headers.forEach((header, index) => {
+                const th = document.createElement('th');
+                th.textContent = header;
+                headerRow.appendChild(th);
+            });
+            thead.appendChild(headerRow);
+            table.appendChild(thead);
+
+            for (let rowIndex = 1; rowIndex < data.length; rowIndex++) {
+                const row = data[rowIndex];
                 const tr = document.createElement('tr');
-                tr.dataset.row = rowIndex; // 添加行数据属性
+                tr.dataset.row = rowIndex - 1; // 行索引从0开始
                 row.forEach((cell, cellIndex) => {
+                    const th = headers[cellIndex] || `Column ${cellIndex + 1}`;
                     const td = document.createElement('td');
                     td.contentEditable = "true";
                     td.textContent = cell;
-                    td.dataset.column = cellIndex; // 添加列数据属性
+                    td.dataset.column = th; // 使用表头作为列数据属性
+                    // 添加事件监听器以更新 originalData
+                    td.addEventListener('input', () => {
+                        originalData[rowIndex - 1][cellIndex] = td.textContent;
+                        saveData();
+                    });
                     tr.appendChild(td);
                 });
                 tbody.appendChild(tr);
-            });
+            }
         }
 
         table.appendChild(tbody);
         tableContainer.appendChild(table);
         downloadBtn.disabled = false;
-
-        // 添加编辑事件监听器以保存修改后的数据
-        table.addEventListener('input', saveData);
     }
 
     // 保存数据到localStorage
@@ -214,10 +234,12 @@
             const csv = Papa.unparse(translatedData);
             downloadFile(csv, 'modified.csv', 'text/csv');
         } else if (fileType === 'xlsx') {
-            const rows = Array.from(table.querySelectorAll('tr')).map(tr => {
+            const headers = Array.from(table.querySelectorAll('thead th')).map(th => th.textContent);
+            translatedData.push(headers);
+            const rows = Array.from(table.querySelectorAll('tbody tr')).map(tr => {
                 return Array.from(tr.querySelectorAll('td')).map(td => td.textContent);
             });
-            translatedData = rows;
+            translatedData = translatedData.concat(rows);
             const worksheet = XLSX.utils.aoa_to_sheet(translatedData);
             const workbook = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(workbook, worksheet, 'Modified');
