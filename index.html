@@ -83,17 +83,14 @@
         <div class="button-group">
             <input type="file" id="fileInput" accept=".xlsx, .xls, .csv">
             <button onclick="document.getElementById('fileInput').click()">Import Excel/CSV</button>
-            <button onclick="exportAsExcel()">Download as Excel</button>
-            <button onclick="exportAsCSV()">Download as CSV</button>
+            <button onclick="downloadAsExcel()">Download as Excel</button>
+            <button onclick="downloadAsCSV()">Download as CSV</button>
         </div>
 
         <div id="preview"></div>
     </div>
 
     <script>
-        let workbookData = null;
-        let jsonData = [];
-
         document.getElementById('fileInput').addEventListener('change', function(e) {
             const file = e.target.files[0];
             if (!file) return;
@@ -101,14 +98,23 @@
             const reader = new FileReader();
 
             reader.onload = function(event) {
-                const data = new Uint8Array(event.target.result);
-                const workbook = XLSX.read(data, {type: 'array'});
-                workbookData = workbook;
+                let workbook;
+                try {
+                    if (file.type === "text/csv") {
+                        workbook = XLSX.read(event.target.result, {type: 'string'});
+                    } else {
+                        const data = new Uint8Array(event.target.result);
+                        workbook = XLSX.read(data, {type: 'array'});
+                    }
+                } catch (error) {
+                    alert('Error reading file!');
+                    return;
+                }
 
                 // 假设处理第一个工作表
                 const firstSheetName = workbook.SheetNames[0];
                 const worksheet = workbook.Sheets[firstSheetName];
-                jsonData = XLSX.utils.sheet_to_json(worksheet, {defval: ""});
+                let jsonData = XLSX.utils.sheet_to_json(worksheet, {defval: ""});
 
                 // 去掉空行
                 jsonData = jsonData.filter(row => Object.values(row).some(cell => cell !== ""));
@@ -122,20 +128,6 @@
                 reader.readAsArrayBuffer(file);
             } else if (file.type === "text/csv") {
                 reader.readAsText(file);
-                reader.onload = function(event) {
-                    const csv = event.target.result;
-                    const workbook = XLSX.read(csv, {type: 'string'});
-                    workbookData = workbook;
-
-                    const firstSheetName = workbook.SheetNames[0];
-                    const worksheet = workbook.Sheets[firstSheetName];
-                    jsonData = XLSX.utils.sheet_to_json(worksheet, {defval: ""});
-
-                    // 去掉空行
-                    jsonData = jsonData.filter(row => Object.values(row).some(cell => cell !== ""));
-
-                    displayData(jsonData);
-                };
             } else {
                 alert('Unsupported file type! Please upload an Excel or CSV file.');
             }
@@ -175,26 +167,53 @@
             });
         }
 
-        function exportAsExcel() {
-            if (!workbookData) {
+        function downloadAsExcel() {
+            const preview = document.getElementById('preview');
+            const records = preview.getElementsByClassName('record');
+
+            if (records.length === 0) {
                 alert('Please import an Excel or CSV file first!');
                 return;
             }
+
+            const jsonData = Array.from(records).map(record => {
+                const dataPairs = record.getElementsByClassName('data-pair')[0].children;
+                const row = {};
+                for (let i = 0; i < dataPairs.length; i += 2) {
+                    const key = dataPairs[i].textContent.slice(0, -1); // Remove the colon
+                    const value = dataPairs[i + 1].textContent;
+                    row[key] = value;
+                }
+                return row;
+            });
 
             const wb = XLSX.utils.book_new();
             const ws = XLSX.utils.json_to_sheet(jsonData);
             XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
-
             XLSX.writeFile(wb, 'exported.xlsx');
         }
 
-        function exportAsCSV() {
-            if (!workbookData) {
+        function downloadAsCSV() {
+            const preview = document.getElementById('preview');
+            const records = preview.getElementsByClassName('record');
+
+            if (records.length === 0) {
                 alert('Please import an Excel or CSV file first!');
                 return;
             }
 
-            const csv = XLSX.utils.sheet_to_csv(workbookData.Sheets[workbookData.SheetNames[0]]);
+            const jsonData = Array.from(records).map(record => {
+                const dataPairs = record.getElementsByClassName('data-pair')[0].children;
+                const row = {};
+                for (let i = 0; i < dataPairs.length; i += 2) {
+                    const key = dataPairs[i].textContent.slice(0, -1); // Remove the colon
+                    const value = dataPairs[i + 1].textContent;
+                    row[key] = value;
+                }
+                return row;
+            });
+
+            const csv = XLSX.utils.sheet_to_csv(XLSX.utils.json_to_sheet(jsonData));
 
             const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
             const url = URL.createObjectURL(blob);
