@@ -1,286 +1,211 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>表格文件（.xlsx, .csv）上传与下载工具</title>
-    <!-- 引入SheetJS和PapaParse库 -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excel/CSV Processing Tool</title>
     <style>
         body {
             font-family: Arial, sans-serif;
-            margin: 40px;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
         }
+
         .container {
-            max-width: 1000px;
-            margin: auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-        input[type="file"] {
-            margin-bottom: 20px;
+
+        .button-group {
+            margin: 20px 0;
         }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 20px;
-        }
-        table, th, td {
-            border: 1px solid #ccc;
-        }
-        th, td {
-            padding: 8px;
-            text-align: left;
-        }
-        td {
-            min-width: 100px;
-            overflow: hidden;
-        }
-        td[contenteditable="true"] {
-            background-color: #f9f9f9;
-        }
+
         button {
             padding: 10px 20px;
             margin-right: 10px;
+            border: none;
+            border-radius: 4px;
+            background-color: #4CAF50;
+            color: white;
             cursor: pointer;
+            transition: background-color 0.3s;
         }
-        #fileTypeDisplay {
-            margin-bottom: 20px;
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        .data-pair {
+            display: flex;
+            flex-wrap: wrap;
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+
+        .key {
             font-weight: bold;
+            margin-right: 10px;
+            min-width: 150px;
         }
-        .button-group {
+
+        .value {
+            flex-grow: 1;
+            word-break: break-all;
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        #preview {
+            margin-top: 20px;
+        }
+
+        .record {
             margin-bottom: 20px;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 10px;
         }
     </style>
+    <!-- Include SheetJS library -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 </head>
 <body>
-<div class="container">
-    <h1>文件上传与下载工具</h1>
-    <div class="button-group">
-        <input type="file" id="fileInput" accept=".xlsx,.csv" style="display: none;">
-        <button onclick="document.getElementById('fileInput').click()">上传表格文件</button>
-        <button id="clearDataBtn" disabled>清空数据</button>
+    <div class="container">
+        <h1>Excel/CSV Processing Tool</h1>
+        
+        <div class="button-group">
+            <input type="file" id="fileInput" accept=".xlsx, .xls, .csv">
+            <button onclick="document.getElementById('fileInput').click()">Import Excel/CSV</button>
+            <button onclick="exportAsExcel()">Download as Excel</button>
+            <button onclick="exportAsCSV()">Download as CSV</button>
+        </div>
+
+        <div id="preview"></div>
     </div>
-    <div id="fileTypeDisplay"></div>
-    <div id="tableContainer"></div>
-    <button id="downloadBtn" disabled>下载修改后的文件</button>
-</div>
 
-<script>
-    const fileInput = document.getElementById('fileInput');
-    const tableContainer = document.getElementById('tableContainer');
-    const downloadBtn = document.getElementById('downloadBtn');
-    const fileTypeDisplay = document.getElementById('fileTypeDisplay');
-    const clearDataBtn = document.getElementById('clearDataBtn');
+    <script>
+        let workbookData = null;
+        let jsonData = [];
 
-    let headers = [];
-    let dataRows = [];
-    let fileType = '';
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
 
-    // 检查localStorage中是否有保存的数据
-    window.addEventListener('load', () => {
-        const savedFileType = localStorage.getItem('fileType');
-        const savedHeaders = localStorage.getItem('tableHeaders');
-        const savedDataRows = localStorage.getItem('tableDataRows');
-        if (savedFileType && savedHeaders && savedDataRows) {
-            fileType = savedFileType;
-            headers = JSON.parse(savedHeaders);
-            dataRows = JSON.parse(savedDataRows);
-            fileTypeDisplay.textContent = `当前文件类型：.${fileType}`;
-            displayTable(headers, dataRows);
-            downloadBtn.disabled = false;
-            clearDataBtn.disabled = false;
-        }
-    });
+            const reader = new FileReader();
 
-    // 读取文件
-    fileInput.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
+            reader.onload = function(event) {
+                const data = new Uint8Array(event.target.result);
+                const workbook = XLSX.read(data, {type: 'array'});
+                workbookData = workbook;
 
-        const reader = new FileReader();
-        const ext = file.name.split('.').pop().toLowerCase();
-        fileType = ext;
-        fileTypeDisplay.textContent = `当前文件类型：.${ext}`;
-        clearDataBtn.disabled = false;
+                // 假设处理第一个工作表
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                jsonData = XLSX.utils.sheet_to_json(worksheet, {defval: ""});
 
-        reader.onload = (evt) => {
-            const data = evt.target.result;
-            if (ext === 'csv') {
-                Papa.parse(data, {
-                    header: true,
-                    skipEmptyLines: true,
-                    complete: function(results) {
-                        headers = results.meta.fields;
-                        // 过滤空行（尽管skipEmptyLines已设置，但进一步确保）
-                        dataRows = results.data.filter(row => {
-                            return headers.some(header => row[header] !== null && row[header] !== '');
-                        });
-                        console.log("Parsed CSV Data:", headers, dataRows);
-                        displayTable(headers, dataRows);
-                        saveData();
-                    }
-                });
-            } else if (ext === 'xlsx') {
-                const workbook = XLSX.read(data, {type: 'binary'});
-                const firstSheet = workbook.SheetNames[0];
-                let sheetData = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet], {header:1, defval: ''});
-                console.log("Raw XLSX Data:", sheetData);
-                if (sheetData.length === 0) {
-                    alert('XLSX文件为空！');
-                    return;
-                }
-                // 过滤空行
-                sheetData = sheetData.filter(row => {
-                    return row.some(cell => cell !== null && cell !== '');
-                });
-                if (sheetData.length === 0) {
-                    alert('XLSX文件没有有效数据！');
-                    return;
-                }
-                headers = sheetData[0];
-                dataRows = sheetData.slice(1);
-                console.log("Parsed XLSX Data:", headers, dataRows);
-                displayTable(headers, dataRows);
-                saveData();
+                // 去掉空行
+                jsonData = jsonData.filter(row => Object.values(row).some(cell => cell !== ""));
+
+                displayData(jsonData);
+            };
+
+            // 根据文件类型读取
+            if (file.type === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" || 
+                file.type === "application/vnd.ms-excel") {
+                reader.readAsArrayBuffer(file);
+            } else if (file.type === "text/csv") {
+                reader.readAsText(file);
+                reader.onload = function(event) {
+                    const csv = event.target.result;
+                    const workbook = XLSX.read(csv, {type: 'string'});
+                    workbookData = workbook;
+
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    jsonData = XLSX.utils.sheet_to_json(worksheet, {defval: ""});
+
+                    // 去掉空行
+                    jsonData = jsonData.filter(row => Object.values(row).some(cell => cell !== ""));
+
+                    displayData(jsonData);
+                };
             } else {
-                alert('仅支持CSV和XLSX文件');
+                alert('Unsupported file type! Please upload an Excel or CSV file.');
             }
-        };
-
-        if (ext === 'csv') {
-            reader.readAsText(file);
-        } else if (ext === 'xlsx') {
-            reader.readAsBinaryString(file);
-        }
-    });
-
-    // 显示表格（使用 innerHTML 拼接）
-    function displayTable(headers, dataRows) {
-        let tableHTML = '<table id="dataTable"><thead><tr>';
-        headers.forEach(header => {
-            tableHTML += `<th>${escapeHTML(header)}</th>`;
         });
-        tableHTML += '</tr></thead><tbody>';
 
-        dataRows.forEach((row, rowIndex) => {
-            tableHTML += `<tr data-row="${rowIndex}">`;
-            headers.forEach((header, cellIndex) => {
-                const cellData = row[cellIndex] !== undefined ? escapeHTML(row[cellIndex]) : '';
-                tableHTML += `<td contenteditable="true" data-row="${rowIndex}" data-col="${cellIndex}">${cellData}</td>`;
+        function displayData(data) {
+            if (data.length === 0) {
+                document.getElementById('preview').innerHTML = '<p>No data to display.</p>';
+                return;
+            }
+
+            const preview = document.getElementById('preview');
+            preview.innerHTML = '';
+
+            data.forEach((row, rowIndex) => {
+                const recordDiv = document.createElement('div');
+                recordDiv.className = 'record';
+
+                const dataPairDiv = document.createElement('div');
+                dataPairDiv.className = 'data-pair';
+
+                Object.entries(row).forEach(([key, value]) => {
+                    const keySpan = document.createElement('span');
+                    keySpan.className = 'key';
+                    keySpan.textContent = `${key}:`;
+
+                    const valueSpan = document.createElement('span');
+                    valueSpan.className = 'value';
+                    valueSpan.textContent = value;
+
+                    dataPairDiv.appendChild(keySpan);
+                    dataPairDiv.appendChild(valueSpan);
+                });
+
+                recordDiv.appendChild(dataPairDiv);
+                preview.appendChild(recordDiv);
             });
-            tableHTML += '</tr>';
-        });
-
-        tableHTML += '</tbody></table>';
-        tableContainer.innerHTML = tableHTML;
-        downloadBtn.disabled = false;
-        clearDataBtn.disabled = false;
-    }
-
-    // 转义HTML字符以防止XSS攻击
-    function escapeHTML(str) {
-        if (typeof str !== 'string') return str;
-        return str.replace(/&/g, "&amp;")
-                  .replace(/</g, "&lt;")
-                  .replace(/>/g, "&gt;")
-                  .replace(/"/g, "&quot;")
-                  .replace(/'/g, "&#039;");
-    }
-
-    // 保存数据到localStorage
-    function saveData() {
-        localStorage.setItem('fileType', fileType);
-        localStorage.setItem('tableHeaders', JSON.stringify(headers));
-        localStorage.setItem('tableDataRows', JSON.stringify(dataRows));
-        console.log("Data saved to localStorage.");
-    }
-
-    // 事件委托监听单元格编辑
-    tableContainer.addEventListener('input', (e) => {
-        if (e.target && e.target.nodeName === 'TD' && e.target.isContentEditable) {
-            const rowIndex = parseInt(e.target.getAttribute('data-row'), 10);
-            const colIndex = parseInt(e.target.getAttribute('data-col'), 10);
-            dataRows[rowIndex][colIndex] = e.target.textContent;
-            saveData();
-        }
-    });
-
-    // 下载按钮点击事件
-    downloadBtn.addEventListener('click', () => {
-        if (fileType === 'csv') {
-            downloadCSV();
-        } else if (fileType === 'xlsx') {
-            downloadXLSX();
-        }
-    });
-
-    // 下载CSV文件
-    function downloadCSV() {
-        if (headers.length === 0) {
-            alert('没有可下载的数据');
-            return;
-        }
-        const csv = Papa.unparse({
-            fields: headers,
-            data: dataRows
-        });
-        downloadFile(csv, 'modified.csv', 'text/csv');
-    }
-
-    // 下载XLSX文件
-    function downloadXLSX() {
-        if (headers.length === 0) {
-            alert('没有可下载的数据');
-            return;
-        }
-        const worksheetData = [headers, ...dataRows];
-        const worksheet = XLSX.utils.aoa_to_sheet(worksheetData);
-        const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, 'Modified');
-        const wbout = XLSX.write(workbook, {bookType: 'xlsx', type: 'binary'});
-
-        function s2ab(s) {
-            const buf = new ArrayBuffer(s.length);
-            const view = new Uint8Array(buf);
-            for (let i = 0; i < s.length; i++) view[i] = s.charCodeAt(i) & 0xFF;
-            return buf;
         }
 
-        downloadFile(new Blob([s2ab(wbout)], {type: 'application/octet-stream'}), 'modified.xlsx', 'application/octet-stream');
-    }
+        function exportAsExcel() {
+            if (!workbookData) {
+                alert('Please import an Excel or CSV file first!');
+                return;
+            }
 
-    // 下载文件辅助函数
-    function downloadFile(content, filename, mimeType) {
-        const a = document.createElement('a');
-        let blob;
-        if (content instanceof Blob) {
-            blob = content;
-        } else {
-            blob = new Blob([content], {type: mimeType});
-        }
-        const url = URL.createObjectURL(blob);
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    }
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.json_to_sheet(jsonData);
+            XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
 
-    // 清空数据按钮点击事件
-    clearDataBtn.addEventListener('click', () => {
-        if (confirm('确定要清空所有数据吗？')) {
-            localStorage.removeItem('fileType');
-            localStorage.removeItem('tableHeaders');
-            localStorage.removeItem('tableDataRows');
-            tableContainer.innerHTML = '';
-            fileTypeDisplay.textContent = '';
-            downloadBtn.disabled = true;
-            clearDataBtn.disabled = true;
-            headers = [];
-            dataRows = [];
-            alert('数据已清空');
+            XLSX.writeFile(wb, 'exported.xlsx');
         }
-    });
-</script>
+
+        function exportAsCSV() {
+            if (!workbookData) {
+                alert('Please import an Excel or CSV file first!');
+                return;
+            }
+
+            const csv = XLSX.utils.sheet_to_csv(workbookData.Sheets[workbookData.SheetNames[0]]);
+
+            const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'exported.csv';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+    </script>
 </body>
 </html>
